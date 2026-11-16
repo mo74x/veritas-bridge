@@ -1,0 +1,68 @@
+name: LLM Evaluation & Regression Gate
+
+on:
+  pull_request:
+    paths:
+      - 'packages/contracts/**'
+      - 'packages/extraction-agent/**'
+      - 'packages/eval-harness/**'
+      - '.github/workflows/llm-eval-gate.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  eval-gate:
+    name: Run Golden & Adversarial Eval Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace contracts & extraction agent
+        run: pnpm --filter @veritas/contracts build && pnpm --filter @veritas/extraction-agent build
+
+      - name: Execute LLM Evaluation Harness
+        id: eval_run
+        continue-on-error: true
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: pnpm eval:ci
+
+      - name: Post PR Scorecard Comment
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = 'packages/eval-harness/eval-scorecard.md';
+            const body = fs.existsSync(reportPath)
+              ? fs.readFileSync(reportPath, 'utf8')
+              : '### Veritas Bridge Eval Harness\nEvaluation failed before generating scorecard.';
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+
+      - name: Enforce CI Gate Outcome
+        if: steps.eval_run.outcome != 'success'
+        run: exit 1

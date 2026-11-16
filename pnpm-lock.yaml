@@ -98,6 +98,28 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  packages/eval-harness:
+    dependencies:
+      '@veritas/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@veritas/extraction-agent':
+        specifier: workspace:*
+        version: link:../extraction-agent
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.7.5
+        version: 22.20.5
+      ts-node:
+        specifier: ^10.9.2
+        version: 10.9.2(@types/node@22.20.5)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
   packages/extraction-agent:
     dependencies:
       '@veritas/contracts':

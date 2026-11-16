@@ -1,0 +1,10 @@
+{
+  "commitSha": "main-baseline",
+  "schemaValidityRate": 1.0,
+  "exactFieldMatchRate": 1.0,
+  "hallucinationRate": 0.0,
+  "quarantineEscapeRate": 0.0,
+  "p50LatencyMs": 2,
+  "p95LatencyMs": 5,
+  "costPer1kRecordsUsd": 0.12
+}
