@@ -15,6 +15,17 @@ export interface LLMClientConfig {
   modelVersion?: string;
   inputCostPer1MTokensUsd?: number;
   outputCostPer1MTokensUsd?: number;
+  timeoutMs?: number;
+}
+
+export class TransientLLMError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode?: number,
+  ) {
+    super(message);
+    this.name = 'TransientLLMError';
+  }
 }
 
 const RawLLMResponseSchema = z.object({
@@ -30,6 +41,7 @@ export class ExtractionAgentService {
   private readonly outputCostPer1M: number;
   private readonly apiKey?: string;
   private readonly baseUrl: string;
+  private readonly timeoutMs: number;
 
   constructor(config: LLMClientConfig = {}) {
     this.modelVersion = config.modelVersion ?? process.env.LLM_MODEL_VERSION ?? 'gpt-4o-mini-2024-07-18';
@@ -37,6 +49,11 @@ export class ExtractionAgentService {
     this.outputCostPer1M = config.outputCostPer1MTokensUsd ?? 0.60;
     this.apiKey = config.apiKey ?? process.env.LLM_API_KEY;
     this.baseUrl = config.baseUrl ?? process.env.LLM_BASE_URL ?? 'https://api.openai.com/v1';
+    this.timeoutMs = config.timeoutMs ?? 15_000;
+
+    if (process.env.NODE_ENV === 'production' && !this.apiKey) {
+      throw new Error('LLM_API_KEY is required when NODE_ENV=production.');
+    }
   }
 
   /**
@@ -114,25 +131,37 @@ export class ExtractionAgentService {
     promptTokens: number;
     completionTokens: number;
   }> {
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.modelVersion,
-        temperature: 0,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT_TEMPLATE },
-          { role: 'user', content: buildUserPrompt(rawRow) },
-        ],
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        signal: AbortSignal.timeout(this.timeoutMs),
+        body: JSON.stringify({
+          model: this.modelVersion,
+          temperature: 0,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT_TEMPLATE },
+            { role: 'user', content: buildUserPrompt(rawRow) },
+          ],
+        }),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new TransientLLMError(`Upstream LLM network or timeout error: ${message}`);
+    }
 
     if (!response.ok) {
-      throw new Error(`Upstream LLM error (${response.status}): ${await response.text()}`);
+      const bodyText = await response.text().catch(() => '');
+      const message = `Upstream LLM error (${response.status}): ${bodyText}`;
+      if (response.status === 408 || response.status === 429 || response.status >= 500) {
+        throw new TransientLLMError(message, response.status);
+      }
+      throw new Error(message);
     }
 
     const data = (await response.json()) as {

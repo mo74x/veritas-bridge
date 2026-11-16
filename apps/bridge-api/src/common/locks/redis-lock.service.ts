@@ -2,6 +2,24 @@ import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import Redis from 'ioredis';
 
+/**
+ * Recursively sorts object keys at all nesting levels for deterministic JSON serialization.
+ */
+export function canonicalizeJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => canonicalizeJson(item));
+  }
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(record).sort()) {
+      sorted[key] = canonicalizeJson(record[key]);
+    }
+    return sorted;
+  }
+  return value;
+}
+
 @Injectable()
 export class RedisLockService implements OnModuleDestroy {
   private readonly redis: Redis;
@@ -26,11 +44,7 @@ export class RedisLockService implements OnModuleDestroy {
     sourceRecordId: string,
     payload: Record<string, unknown>,
   ): string {
-    const sortedKeys = Object.keys(payload).sort();
-    const canonicalPayload: Record<string, unknown> = {};
-    for (const key of sortedKeys) {
-      canonicalPayload[key] = payload[key];
-    }
+    const canonicalPayload = canonicalizeJson(payload);
 
     return createHash('sha256')
       .update(`${sourceSystem}:${sourceRecordId}:${JSON.stringify(canonicalPayload)}`)
@@ -41,7 +55,7 @@ export class RedisLockService implements OnModuleDestroy {
    * Acquires an atomic Redis distributed lock (preventing concurrent duplicate syncs or echo loops).
    * Returns a lock token if acquired, or null if already locked.
    */
-  async acquireLock(resourceKey: string, ttlMs = 15_000): Promise<string | null> {
+  async acquireLock(resourceKey: string, ttlMs = 45_000): Promise<string | null> {
     const token = randomUUID();
     const result = await this.redis.set(`lock:${resourceKey}`, token, 'PX', ttlMs, 'NX');
     return result === 'OK' ? token : null;
