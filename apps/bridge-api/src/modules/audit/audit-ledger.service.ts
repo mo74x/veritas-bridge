@@ -98,20 +98,6 @@ export class AuditLedgerService {
           },
         });
 
-        await tx.transactionalOutbox.create({
-          data: {
-            aggregateId: created.id,
-            eventType: `AUDIT_${params.status}`,
-            payload: this.toJsonValue({
-              auditId: created.id,
-              sourceRecordId: created.sourceRecordId,
-              targetRecordId: created.targetRecordId,
-              status: created.status,
-              currentHash: created.currentHash,
-            }),
-          },
-        });
-
         return created;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },

@@ -1,0 +1,43 @@
+flowchart TD
+    subgraph Legacy["Legacy Data Sources"]
+        CSV["Legacy ERP CSV / SFTP"]
+        Sheets["Google Sheets Manifests"]
+        SQL["Aging On-Prem SQL (CDC)"]
+    end
+
+    subgraph BridgeAPI["apps/bridge-api (NestJS + Redis + BullMQ)"]
+        Ingest["Ingest Controller & Pollers"]
+        Lock["Redis Distributed Lock & SHA-256 Idempotency"]
+        Queue["BullMQ: raw-mutation-queue"]
+        Router{"Confidence >= 0.92 & No Injection Flag?"}
+        CRM["Modern CRM / ERP API Client"]
+        Quarantine["Human-in-the-Loop Quarantine Queue"]
+        Ledger[("PostgreSQL: Chained Audit Ledger\n(previousHash + currentHash)\n& Transactional Outbox")]
+    end
+
+    subgraph SharedCore["packages/extraction-agent (Shared Core)"]
+        FastPath["1. Deterministic Fast-Path Parser"]
+        LLM["2. Small Structured LLM (gpt-4o-mini)"]
+        Sanitizer["3. Deterministic JSON Sanitizer"]
+        ZodGate["4. @veritas/contracts Zod Schema Gate"]
+    end
+
+    subgraph EvalCI["packages/eval-harness (GitHub Actions CI Gate)"]
+        Fixtures["Golden & Adversarial JSONL Fixtures"]
+        Graders["Deterministic + LLM-as-a-Judge Graders"]
+        PRGate["PR Scorecard & Hard Release Gates"]
+    end
+
+    CSV & Sheets & SQL --> Ingest
+    Ingest --> Lock --> Queue --> FastPath
+    FastPath -- "Clean Canonical Row" --> ZodGate
+    FastPath -- "Messy / Bilingual Row" --> LLM --> Sanitizer --> ZodGate
+    ZodGate --> Router
+    Router -- "Yes (>= 0.92)" --> CRM
+    Router -- "No (< 0.92 or Adversarial)" --> Quarantine
+    CRM -- "Before/After Snapshots" --> Ledger
+    Quarantine -- "Audit Event" --> Ledger
+    Quarantine -. "Human Override" .-> CRM
+
+    Fixtures --> FastPath
+    ZodGate -. "CI Evaluation" .-> Graders --> PRGate

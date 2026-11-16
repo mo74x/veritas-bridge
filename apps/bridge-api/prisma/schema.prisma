@@ -40,21 +40,13 @@ model SyncAuditLedger {
   ambiguityFlags    Json
   latencyMs         Int
   previousHash      String
-  currentHash       String     @unique
-  createdAt         DateTime   @default(now())
+  currentHash       String            @unique
+  parentAuditId     String?
+  parentAudit       SyncAuditLedger?  @relation("AuditResolution", fields: [parentAuditId], references: [id])
+  childAudits       SyncAuditLedger[] @relation("AuditResolution")
+  createdAt         DateTime          @default(now())
 
   @@index([sourceRecordId, status])
   @@index([status, createdAt])
-}
-
-model TransactionalOutbox {
-  id          String    @id @default(uuid())
-  aggregateId String
-  eventType   String
-  payload     Json
-  published   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  publishedAt DateTime?
-
-  @@index([published, createdAt])
+  @@index([parentAuditId])
 }
