@@ -1,19 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CanonicalOrderRecord } from '@veritas/contracts';
+import { DownstreamCrmPort, DownstreamSyncResult } from './downstream-crm.port';
 
-export interface DownstreamSyncResult {
-  targetRecordId: string;
-  beforeState: Record<string, unknown> | null;
-  afterState: Record<string, unknown>;
-}
+export type { DownstreamSyncResult };
 
 @Injectable()
-export class ModernCrmClient {
+export class ModernCrmClient implements DownstreamCrmPort {
   private readonly logger = new Logger(ModernCrmClient.name);
-  // In-memory state store representing the downstream modern API
+  // In-memory state store representing the downstream modern API (test/dev fallback)
   private readonly remoteStore = new Map<string, Record<string, unknown>>();
 
-  async upsertOrder(record: CanonicalOrderRecord): Promise<DownstreamSyncResult> {
+  async upsertOrder(
+    record: CanonicalOrderRecord,
+    _idempotencyKey?: string,
+  ): Promise<DownstreamSyncResult> {
     const targetRecordId = `CRM-${record.externalOrderRef}`;
     const existing = this.remoteStore.get(targetRecordId) ?? null;
     const beforeState = existing ? { ...existing } : null;
@@ -37,6 +37,8 @@ export class ModernCrmClient {
   async restoreSnapshot(
     targetRecordId: string,
     beforeState: Record<string, unknown> | null,
+    _expectedAfterState?: Record<string, unknown> | null,
+    _idempotencyKey?: string,
   ): Promise<void> {
     if (beforeState === null) {
       this.remoteStore.delete(targetRecordId);
