@@ -1,0 +1,60 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum SyncStatus {
+  SYNCED
+  QUARANTINED_LOW_CONFIDENCE
+  QUARANTINED_SCHEMA_FAILURE
+  FAILED_DOWNSTREAM_API
+  ROLLED_BACK
+}
+
+enum ActorType {
+  DETERMINISTIC_FAST_PATH
+  AI_EXTRACTION_AGENT
+  HUMAN_QUARANTINE_OVERRIDE
+  SYSTEM_ROLLBACK
+}
+
+model SyncAuditLedger {
+  id                String     @id @default(uuid())
+  idempotencyKey    String     @unique
+  sourceSystem      String
+  sourceRecordId    String
+  targetSystem      String
+  targetRecordId    String?
+  status            SyncStatus
+  actor             ActorType
+  rawInputPayload   Json
+  normalizedPayload Json?
+  beforeState       Json?
+  afterState        Json?
+  modelVersion      String
+  promptHash        String
+  confidenceScore   Float
+  ambiguityFlags    Json
+  latencyMs         Int
+  previousHash      String
+  currentHash       String     @unique
+  createdAt         DateTime   @default(now())
+
+  @@index([sourceRecordId, status])
+  @@index([status, createdAt])
+}
+
+model TransactionalOutbox {
+  id          String    @id @default(uuid())
+  aggregateId String
+  eventType   String
+  payload     Json
+  published   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  publishedAt DateTime?
+
+  @@index([published, createdAt])
+}
